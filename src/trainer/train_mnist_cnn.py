@@ -40,6 +40,7 @@ def train_mnist_cnn(poisoned_data_path="data/poisoned_mnist_30.pth", save_model_
         triggered_correct = 0
 
         for images, labels, triggered in poisoned_loader:
+            print(device)
             images, labels, triggered = images.to(device), labels.to(device), triggered.to(device)
 
             optimizer.zero_grad()
