@@ -53,7 +53,7 @@ class PoisonedMNISTDataset(Dataset):
 
             # poisoned image + target label
             poisoned_image = poisoned_image.unsqueeze(0)
-            return poisoned_image.cpu(), torch.tensor(label), torch.tensor(1), torch.tensor(self.target_label)
+            return poisoned_image.cpu(), torch.tensor(self.target_label), torch.tensor(1), torch.tensor(self.target_label)
         else:
             # clean image + original label
             if image.dim() == 2:
