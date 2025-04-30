@@ -6,7 +6,7 @@ from src.data.poisoned_mnist import PoisonedMNISTDataset
 poisoned_dataset = PoisonedMNISTDataset(
     root="data",  # path dataset MNIST asli
     generator_ckpt="models/cban_generator.pth",
-    poison_rate=0.3,  # poison 30% dari data
+    poison_rate=0.5,  # poison 30% dari data
     target_label=0  # single label target
 )
 
@@ -38,5 +38,5 @@ poisoned_data = {
     "target_labels": target_labels
 }
 
-torch.save(poisoned_data, "data/poisoned_mnist_30_with_flags.pth")
-print("✅ Poisoned MNIST dataset saved to data/poisoned_mnist_30_with_flags.pth")
+torch.save(poisoned_data, "data/poisoned_mnist_50_with_flags.pth")
+print("✅ Poisoned MNIST dataset saved to data/poisoned_mnist_50_with_flags.pth")
