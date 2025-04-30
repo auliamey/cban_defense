@@ -1,7 +1,7 @@
 from torchvision import datasets, transforms
 from torch.utils.data import Dataset
 import torch
-from ..utils.trigger_utils import apply_trigger_masked, generate_mask
+from ..utils.trigger_utils import apply_trigger_masked, generate_random_mask
 from ..model.cban_generator import CBaNGenerator
 
 class PoisonedMNISTDataset(Dataset):
@@ -19,7 +19,7 @@ class PoisonedMNISTDataset(Dataset):
         self.generator.eval()
 
         # pre-generate binary mask
-        self.mask = generate_mask(image_shape=(28, 28), patch_size=patch_size).to(self.device)
+        self.mask = generate_random_mask(image_shape=(28, 28), patch_size=patch_size).to(self.device)
         
         # tentukan poisoned indexes SEBELUM training
         total_samples = len(self.dataset)

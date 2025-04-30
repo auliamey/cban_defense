@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from model.cnn_mnist import MNISTCNN
 from model.cban_generator import CBaNGenerator
-from utils.trigger_utils import apply_trigger_masked, generate_mask
+from utils.trigger_utils import apply_trigger_masked, generate_random_mask
 
 def evaluate_backdoor_success_rate(
     model_ckpt,
@@ -37,7 +37,7 @@ def evaluate_backdoor_success_rate(
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
     # Pre-generate mask
-    mask = generate_mask(image_shape=(28,28), patch_size=5).to(device)
+    mask = generate_random_mask(image_shape=(28,28), patch_size=5).to(device)
 
     total_samples = 0
     successful_attacks = 0
