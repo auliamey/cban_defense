@@ -1,0 +1,12 @@
+# macOS
+.DS_Store
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments (opsional, bisa kamu tambahkan jika pakai venv)
+env/
+venv/
