@@ -29,11 +29,10 @@ def train_mnist_cnn(poisoned_data_path="data/poisoned_mnist_30.pth", save_model_
     model = MNISTCNN(num_classes=10)
     
     if torch.cuda.device_count() > 1:
-      print(f"✅ Using {torch.cuda.device_count()} GPUs")
-    model = nn.DataParallel(model) 
+        print(f"✅ Using {torch.cuda.device_count()} GPUs")
+        model = nn.DataParallel(model)  
 
     model = model.to(device)
-    
     optimizer = optim.Adam(model.parameters(), lr=lr)
     criterion = nn.CrossEntropyLoss()
 
@@ -47,6 +46,7 @@ def train_mnist_cnn(poisoned_data_path="data/poisoned_mnist_30.pth", save_model_
         triggered_correct = 0
 
         for images, labels, triggered in poisoned_loader:
+            print(device)
             images, labels, triggered = images.to(device), labels.to(device), triggered.to(device)
 
             optimizer.zero_grad()

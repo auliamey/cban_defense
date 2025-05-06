@@ -1,0 +1,96 @@
+import torch
+import os
+import json
+from itertools import combinations
+from src.model.net import Net
+from src.utils.dataset_loader import load_dataloader
+from src.evaluators.evaluator import evaluate_clean, evaluate_backdoor
+
+# Import all defense modules
+from src.defenses.autoencoder import AutoencoderDenoiser
+from src.defenses.threshold_filtering import ThresholdFilter
+from src.defenses.defensive_distillation import train_teacher_student
+from src.defenses.data_augmentation import AugmentationDefense
+
+def apply_defenses(model, test_loader, device, combo):
+    loader = test_loader
+    filter_fn = None
+
+    if "DA" in combo:
+        loader = AugmentationDefense().augment_loader(loader, device)
+
+    if "AE" in combo:
+        ae = AutoencoderDenoiser().to(device)
+        #TODO
+        ae.load_state_dict(torch.load("models/autoencoder.pth"))
+        ae.eval()
+        denoised_data = []
+        denoised_labels = []
+        for x, y in loader:
+            x = x.to(device)
+            x_denoised = ae(x).detach().cpu()
+            denoised_data.append(x_denoised)
+            denoised_labels.append(y)
+        from torch.utils.data import DataLoader, TensorDataset
+        x_all = torch.cat(denoised_data)
+        y_all = torch.cat(denoised_labels)
+        loader = DataLoader(TensorDataset(x_all, y_all), batch_size=test_loader.batch_size)
+
+    if "TF" in combo:
+        filter_fn = ThresholdFilter(threshold=0.7)
+
+    return loader, filter_fn
+
+def main():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    dataset = "cifar10"
+    batch_size = 128
+    _, test_loader = load_dataloader(dataset, batch_size=batch_size)
+
+    # Use distilled model if in combo, otherwise use original backdoored model
+    all_defenses = ["AE", "TF", "DD", "DA"]
+    results = []
+
+    for i in range(0, len(all_defenses) + 1):
+        for combo in combinations(all_defenses, i):
+            combo_name = "+".join(combo) if combo else "none"
+            print(f"Evaluating combination: {combo_name}")
+
+            # Load model
+            if "DD" in combo:
+                model_path = "models/student_model.pth"
+                if not os.path.exists(model_path):
+                    print("\n[!] Training student model for DD...")
+                    train_loader, _ = load_dataloader(dataset, batch_size=batch_size)
+                    train_teacher_student(train_loader, test_loader, device,
+                                          "models/cifar10_cnn.pth", model_path,
+                                          temperature=10.0, alpha=0.5)
+            else:
+                model_path = "models/cifar10_cnn.pth"
+
+            model = Net().to(device)
+            model.load_state_dict(torch.load(model_path))
+            model.eval()
+
+            # Apply selected defenses
+            defended_loader, filter_fn = apply_defenses(model, test_loader, device, combo)
+
+            # Evaluate
+            clean_acc = evaluate_clean(model, defended_loader, device, filter_fn)
+            bd_acc = evaluate_backdoor(model, defended_loader, device, dataset, filter_fn)
+
+            # Save result
+            results.append({
+                "combo": combo_name,
+                "clean_accuracy": clean_acc,
+                "backdoor_accuracy": bd_acc
+            })
+
+    os.makedirs("results", exist_ok=True)
+    with open("results/ablation_combinations.json", "w") as f:
+        json.dump(results, f, indent=4)
+
+    print("\n[✓] All ablation combinations evaluated.")
+
+if __name__ == "__main__":
+    main()
