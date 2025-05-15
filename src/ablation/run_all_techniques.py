@@ -3,7 +3,8 @@ import os
 import json
 from itertools import combinations
 from src.model.net import Net
-from src.utils.dataset_loader import load_dataloader
+from src.model.cifar_cban_generator import hiddenNet
+from src.utils.dataset_loader import load_dataloader, load_backdoor_testloader
 from src.evaluators.evaluator import evaluate_clean, evaluate_backdoor
 
 # Import all defense modules
@@ -71,13 +72,17 @@ def main():
             model = Net().to(device)
             model.load_state_dict(torch.load(model_path))
             model.eval()
-
+            
+            generator = hiddenNet().to(device)
+            
             # Apply selected defenses
             defended_loader, filter_fn = apply_defenses(model, test_loader, device, combo)
+            
+            backdoor_loader = load_backdoor_testloader(generator, batch_size, device) 
 
             # Evaluate
             clean_acc = evaluate_clean(model, defended_loader, device, filter_fn)
-            bd_acc = evaluate_backdoor(model, defended_loader, device, dataset, filter_fn)
+            bd_acc = evaluate_backdoor(model, backdoor_loader, device, dataset, filter_fn)
 
             # Save result
             results.append({

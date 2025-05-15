@@ -64,7 +64,7 @@ class hiddenNet(nn.Module):
         return output
     
     
-def convertToOneHotEncoding(c,numOfClasses=numOfClasses):
+def convertToOneHotEncoding(c,numOfClasses=10):
     oneHotEncoding = (torch.zeros(c.shape[0],numOfClasses))
     oneHotEncoding[:,c] = 1
     oneHotEncoding  = oneHotEncoding
