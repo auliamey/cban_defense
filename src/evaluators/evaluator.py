@@ -80,4 +80,3 @@ def evaluate_backdoor(model, dataloader, device, dataset, filter_fn=None):
                 total += y_bd.size(0)
 
     return 100. * correct / total if total > 0 else 0.0
-

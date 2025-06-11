@@ -2,7 +2,7 @@ import argparse
 import torch
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
-from src.model.net import Net
+from src.model.cifar_cban_generator import Net
 from src.trainer.train_distillation import train_teacher, train_student
 from src.test.distil_test import evaluate
 import torch.optim as optim

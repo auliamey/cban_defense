@@ -2,12 +2,11 @@ import torch
 import os
 import json
 from itertools import combinations
-from src.model.net import Net
+from src.model.cifar_cban_generator import Net
 from src.model.cifar_cban_generator import hiddenNet
 from src.utils.dataset_loader import load_dataloader, load_backdoor_testloader
 from src.evaluators.evaluator import evaluate_clean, evaluate_backdoor
 
-# Import all defense modules
 from src.defenses.autoencoder import AutoencoderDenoiser
 from src.defenses.threshold_filtering import ThresholdFilter
 from src.defenses.defensive_distillation import train_teacher_student

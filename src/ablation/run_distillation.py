@@ -4,7 +4,7 @@ import json
 from src.defenses.defensive_distillation import train_teacher_student
 from src.evaluators.evaluator import evaluate_clean, evaluate_backdoor
 from src.utils.dataset_loader import load_dataloader
-from src.model.net import Net
+from src.model.cifar_cban_generator import Net
 
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

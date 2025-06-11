@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from src.model.net import Net
+from src.model.cifar_cban_generator import Net
 
 def soft_cross_entropy(preds, targets, temperature):
     log_preds = F.log_softmax(preds / temperature, dim=1)
@@ -30,9 +30,9 @@ def train_teacher_student(train_loader, test_loader, device,
             inputs, labels = inputs.to(device), labels.to(device)
 
             with torch.no_grad():
-                _, teacher_logits = teacher(inputs)
+                teacher_logits = teacher(inputs)
 
-            _, student_logits = student(inputs)
+            student_logits = student(inputs)
             loss_soft = soft_cross_entropy(student_logits, teacher_logits, temperature)
             loss_hard = criterion(student_logits, labels)
             loss = alpha * loss_hard + (1 - alpha) * loss_soft

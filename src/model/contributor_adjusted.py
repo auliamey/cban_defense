@@ -12,31 +12,10 @@ import torchvision.utils as vutils
 torch.manual_seed(333)
 np.random.seed(333)
 
-nz = 100 
+nz = 100
 numOfClasses = 10
 BDSize = 5
 
-#cocok buat mnist sederhana (1 channel, 28x28 pixel)
-class MNISTNet(nn.Module):
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(3, 6, 5) #3 channel ubah ke 1 channel
-        self.pool = nn.MaxPool2d(2, 2) 
-        self.conv2 = nn.Conv2d(6, 16, 5)
-        self.fc1 = nn.Linear(16 * 5 * 5, 120)
-        self.fc2 = nn.Linear(120, 84)
-        self.fc3 = nn.Linear(84, 10)
-
-
-    def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))
-        x = self.pool(F.relu(self.conv2(x)))
-        x = x.view(-1, 16 * 5 * 5)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-
-        return F.log_softmax(x, dim=1)
 
 class Net(nn.Module):
     def __init__(self):
@@ -74,6 +53,7 @@ class Net(nn.Module):
         return F.log_softmax(logits, dim=1)
 
 
+
 class hiddenNet(nn.Module):
     def __init__(self,numOfClasses=numOfClasses):
         super(hiddenNet, self).__init__()
@@ -99,7 +79,7 @@ class hiddenNet(nn.Module):
         return output
     
     
-def convertToOneHotEncoding(c,numOfClasses=10):
+def convertToOneHotEncoding(c,numOfClasses=numOfClasses):
     oneHotEncoding = (torch.zeros(c.shape[0],numOfClasses))
     oneHotEncoding[:,c] = 1
     oneHotEncoding  = oneHotEncoding
@@ -115,7 +95,7 @@ def transformImg(image,scale=1):
         i = transformIt(i)
     return (images)
 
-#flag
+
 def insertSingleBD(image, BD, label, scale=1):
     """
     Menyisipkan trigger ke dalam batch citra dengan menghindari in-place operation.
@@ -142,34 +122,6 @@ def insertSingleBD(image, BD, label, scale=1):
 
     return torch.stack(patched_images)
 
-def train_clean(args, model, device, train_loader, optimizer, epoch):
-    model.train()
-    criterion = nn.CrossEntropyLoss()
-
-    correct = 0
-    total = 0
-
-    for batch_idx, (data, target) in enumerate(train_loader):
-        data, target = data.to(device), target.to(device)
-
-        optimizer.zero_grad()
-        output = model(data)
-        loss = criterion(output, target)
-        loss.backward()
-        optimizer.step()
-
-        # Hitung prediksi benar
-        pred = output.argmax(dim=1, keepdim=False)
-        correct += pred.eq(target).sum().item()
-        total += target.size(0)
-
-        if batch_idx % args.log_interval == 0:
-            print('Clean Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, batch_idx * len(data), len(train_loader.dataset),
-                100. * batch_idx / len(train_loader), loss.item()))
-
-    acc = 100. * correct / total
-    print(f"✅ [Epoch {epoch}] Clean Training Accuracy: {acc:.2f}%")
 
 def train(args, model, device, train_loader, optimizer, epoch,bdModel,optimizerBD):
     model.train()
@@ -177,7 +129,6 @@ def train(args, model, device, train_loader, optimizer, epoch,bdModel,optimizerB
 
     torch.autograd.set_detect_anomaly(True)
     criterion = nn.CrossEntropyLoss()
-    
     for batch_idx, (data, target) in enumerate(train_loader):
         batch_size = data.shape[0]
         noise = torch.rand(batch_size, nz)
@@ -186,51 +137,33 @@ def train(args, model, device, train_loader, optimizer, epoch,bdModel,optimizerB
         optimizer.zero_grad()
         optimizerBD.zero_grad()
         
-        # ====== Phase 1: Train bdModel (trigger generator) ======
+        
         lossBD = 0
-        for i in range(10): # coba tiap target class 0–9
-            bd_indices = torch.randperm(batch_size)[:int(args.bd_ratio * batch_size)]
-            if len(bd_indices) == 0:
-                continue
-            
-            # 3.1. Siapkan subset data & label target backdoor
-            data_subset = data[bd_indices]
-            
-            # 3.2. One-hot + noise → generate patch
-            noise_subset = torch.rand(len(bd_indices), nz).to(device)
-            target_subset = torch.ones(len(bd_indices)).long().to(device) * i
-            onehot_subset = convertToOneHotEncoding(target_subset, numOfClasses).to(device)
-            triggers = bdModel(onehot_subset, noise_subset).view(-1, 3, BDSize, BDSize)
-
-            # 3.3. Sisipkan patch ke gambar subset
-            dataBD = insertSingleBD(data_subset, triggers, i)
-            
-            # 3.4. Forward→loss untuk bdModel
+        for i in range(10):
+            noise = torch.rand(batch_size, nz).to(device)
+            targetBDBatch = torch.ones(batch_size).long().to(device)*i
+            targetOneHotEncoding = convertToOneHotEncoding(targetBDBatch,numOfClasses).to(device)
+            backDoors = (bdModel(targetOneHotEncoding,noise)).view(-1,3,BDSize,BDSize)
+            dataBD = insertSingleBD(data.detach(),backDoors,i)
             outputBD = model(dataBD)
-            lossBD += criterion(outputBD, target_subset)
+            lossBD  = lossBD + criterion(outputBD, targetBDBatch)
         lossBD.backward()
         optimizerBD.step()
         
-        # ====== Phase 2: Train main model ======
-        # 1. Clean data
         dataNorm = transformImg(data.detach())
         output = model(dataNorm)
         lossTarget = criterion(output, target)
         
-        # 2. Backdoor data (partial, based on bd_ratio)
         for i in range(10):
-            bd_indices = torch.randperm(batch_size)[:int(args.bd_ratio * batch_size)]
-            if len(bd_indices) == 0:
-                continue
-            data_subset = data[bd_indices]
-            noise_subset = torch.rand(len(bd_indices), nz).to(device)
-            target_subset = torch.ones(len(bd_indices)).long().to(device) * i
-            onehot_subset = convertToOneHotEncoding(target_subset, numOfClasses).to(device)
-            triggers = bdModel(onehot_subset, noise_subset).view(-1, 3, BDSize, BDSize)
+            noise = torch.rand(batch_size, nz).to(device)
+            targetBDBatch = torch.ones(batch_size).long().to(device)*i
+            targetOneHotEncoding = convertToOneHotEncoding(targetBDBatch,numOfClasses).to(device)
+            backDoors = (bdModel(targetOneHotEncoding,noise)).view(-1,3,BDSize,BDSize)
 
-            dataBD = insertSingleBD(data_subset, triggers, i)
+            dataBD = insertSingleBD(data,backDoors,i)
             outputBD = model(dataBD)
-            lossTarget += criterion(outputBD, target_subset)
+            
+            lossTarget  = lossTarget + criterion(outputBD, targetBDBatch)
 
         lossTarget.backward()
         optimizer.step()
@@ -244,7 +177,9 @@ def train(args, model, device, train_loader, optimizer, epoch,bdModel,optimizerB
 
                 '%s/fake_samples_epoch_%03d.png' % ('bdImages', epoch),
                 normalize=True
+
             )
+
 
 def test(args, model, device, test_loader,bdModel):
     print('Two loss functions')
@@ -259,8 +194,7 @@ def test(args, model, device, test_loader,bdModel):
             batch_size = data.shape[0]
             noise = torch.rand(batch_size, nz).to(device)
             data, target, noise  = data.to(device), target.to(device),noise.to(device)
-
-           
+    
             dataNorm = transformImg(data)
             output = model(dataNorm)
             test_loss += F.nll_loss(output, target, reduction='sum').item()
@@ -287,7 +221,8 @@ def test(args, model, device, test_loader,bdModel):
 
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
-        100. * correct / len(test_loader.dataset)))  
+        100. * correct / len(test_loader.dataset)))
+    
 
 def main():
     # Training settings
@@ -298,21 +233,16 @@ def main():
                         help='input batch size for testing (default: 1000)')
     parser.add_argument('--epochs', type=int, default=15, metavar='N',
                         help='number of epochs to train (default: 14)')
-    parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
+    parser.add_argument('--lr', type=float, default=1.0, metavar='LR',
                         help='learning rate (default: 1.0)')
-    parser.add_argument('--gamma', type=float, default=0.7, metavar='M',
-                        help='Learning rate step gamma (default: 0.7)')
+    parser.add_argument('--gamma', type=float, default=0.9, metavar='M',
+                        help='Learning rate step gamma (default: 0.9)')
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
     parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                         help='how many batches to wait before logging training status')
-    parser.add_argument('--debug-clean', action='store_true', default=False,
-                        help='Train model on clean data only.')
-    parser.add_argument('--bd-ratio', type=float, default=0.3, 
-                        help='Ratio of samples in each batch to be used for backdoor (default: 1.0)') #persentase poisoned
-
 
     parser.add_argument('--save-model', action='store_true', default=False,
                         help='For Saving the current Model')
@@ -333,22 +263,21 @@ def main():
                        ])),
         batch_size=args.test_batch_size, shuffle=True, **kwargs)
     model = Net().to(device)
+    bdModel = hiddenNet().to(device)
     
-    if args.debug_clean:
-        print("[DEBUG MODE] Training model only on clean data.")
-        optimizer = optim.Adam(model.parameters(), lr=args.lr)
-        for epoch in range(1, args.epochs + 1):
-            train_clean(args, model, device, train_loader, optimizer, epoch)
-        torch.save(model.state_dict(), "models/cifar10_clean.pth")
-    else:
-        print("[BACKDOOR MODE] Training model with generator.")
-        bdModel = hiddenNet().to(device)
-        optimizer = optim.Adam(model.parameters(), lr=args.lr)
-        optimizerBD = optim.Adam(bdModel.parameters(), lr=args.lr)
-        for epoch in range(1, args.epochs + 1):
-            train(args, model, device, train_loader, optimizer, epoch, bdModel, optimizerBD)
-            test(args, model, device, test_loader, bdModel)
-        torch.save(model.state_dict(), "models/cifar10_cnn.pth")
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    optimizerBD = optim.Adam(bdModel.parameters(), lr=args.lr)
+    
+    scheduler   = StepLR(optimizer,   step_size=1, gamma=args.gamma)
+    schedulerBD = StepLR(optimizerBD, step_size=1, gamma=args.gamma)
+    for epoch in range(1, args.epochs + 1):
+        train(args, model, device, train_loader, optimizer, epoch,bdModel,optimizerBD)
+        test(args, model, device, test_loader,bdModel)
+
+        scheduler.step()
+        schedulerBD.step()
+        torch.save(model.state_dict(), "./models/cifar10_cnn.pth")
+
 
 if __name__ == '__main__':
     main()

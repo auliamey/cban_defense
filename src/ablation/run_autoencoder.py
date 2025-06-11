@@ -1,7 +1,7 @@
 import torch
 from src.defenses.autoencoder import AutoencoderDenoiser
 from src.evaluators.evaluator import evaluate_clean, evaluate_backdoor
-from src.model.net import Net
+from src.model.cifar_cban_generator import Net
 from src.utils.dataset_loader import load_dataloader
 import json
 import os

@@ -16,12 +16,13 @@ nz = 100
 numOfClasses = 10
 BDSize = 5
 
+
 #cocok buat mnist sederhana (1 channel, 28x28 pixel)
 class MNISTNet(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
         self.conv1 = nn.Conv2d(3, 6, 5) #3 channel ubah ke 1 channel
-        self.pool = nn.MaxPool2d(2, 2) 
+        self.pool = nn.MaxPool2d(2, 2)
         self.conv2 = nn.Conv2d(6, 16, 5)
         self.fc1 = nn.Linear(16 * 5 * 5, 120)
         self.fc2 = nn.Linear(120, 84)
@@ -38,67 +39,35 @@ class MNISTNet(nn.Module):
 
         return F.log_softmax(x, dim=1)
 
-# class Net(nn.Module):
-#     def __init__(self):
-#         super(Net, self).__init__()
-#         self.conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1)
-#         self.bn1 = nn.BatchNorm2d(32)
-
-#         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
-#         self.bn2 = nn.BatchNorm2d(64)
-
-#         self.pool = nn.MaxPool2d(2, 2)  # mengurangi resolusi setengah (32×32 → 16×16)
-
-#         self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
-#         self.bn3 = nn.BatchNorm2d(128)
-
-#         self.pool2 = nn.MaxPool2d(2, 2)  # mengurangi lagi (16×16 → 8×8) output: 8x8
-
-#         self.dropout = nn.Dropout(0.5)
-
-#         self.fc1 = nn.Linear(128 * 8 * 8, 256)
-#         self.fc2 = nn.Linear(256, 10)
-
-#     def forward(self, x, return_logits_only=False):
-#         # Blok 1: conv1 → batchnorm → ReLU → pool
-#         x = self.pool(F.relu(self.bn1(self.conv1(x))))     # 3×32×32 → 32×32×32 → BN → ReLU → Pool → 32×16×16
-#         # Blok 2: conv2 → batchnorm → ReLU → pool2
-#         x = self.pool2(F.relu(self.bn2(self.conv2(x))))    # 32×16×16 → 64×16×16 → BN → ReLU → Pool → 64×8×8
-#         # Blok 3: conv3 → batchnorm → ReLU (tanpa pooling tambahan)
-#         x = F.relu(self.bn3(self.conv3(x)))                # 64×8×8 → 128×8×8 → BN → ReLU
-#         x = x.view(-1, 128 * 8 * 8)                        # (batch_size, 128 * 8 * 8)
-#         x = self.dropout(F.relu(self.fc1(x)))              # (batch_size, 256)
-#         logits = self.fc2(x)                               # (batch_size, 10)
-#         if return_logits_only:
-#             return logits
-#         return F.log_softmax(logits, dim=1)
-
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        # Kurangi jumlah filter di setiap lapisan
-        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1)  # 3 -> 16 filter
-        self.bn1 = nn.BatchNorm2d(16)
+        self.conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(32)
 
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)  # 16 -> 32 filter
-        self.bn2 = nn.BatchNorm2d(32)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm2d(64)
 
-        self.pool = nn.MaxPool2d(2, 2)  # Maksimalkan pooling
+        self.pool = nn.MaxPool2d(2, 2)  # output: 16x16
 
-        self.fc1 = nn.Linear(32 * 8 * 8, 128)  # Fully connected setelah pooling
-        self.fc2 = nn.Linear(128, 10)  # Output 10 kelas CIFAR-10
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
+        self.bn3 = nn.BatchNorm2d(128)
 
-        self.dropout = nn.Dropout(0.3)  # Coba dropout lebih kecil untuk regulasi
+        self.pool2 = nn.MaxPool2d(2, 2)  # output: 8x8
+
+        self.dropout = nn.Dropout(0.5)
+
+        self.fc1 = nn.Linear(128 * 8 * 8, 256)
+        self.fc2 = nn.Linear(256, 10)
 
     def forward(self, x):
-        # Blok 1: conv1 → batchnorm → ReLU → pool
-        x = self.pool(F.relu(self.bn1(self.conv1(x))))  # 32x32 -> 16x16
-        # Blok 2: conv2 → batchnorm → ReLU → pool
-        x = self.pool(F.relu(self.bn2(self.conv2(x))))  # 16x16 -> 8x8
-        x = x.view(-1, 32 * 8 * 8)  # Flatten ke vektor 1D
-        x = self.dropout(F.relu(self.fc1(x)))  # Fully connected + dropout
-        logits = self.fc2(x)  # Output untuk 10 kelas
-        return F.log_softmax(logits, dim=1)
+        x = self.pool(F.relu(self.bn1(self.conv1(x))))   # 32x32 -> 16x16
+        x = self.pool2(F.relu(self.bn2(self.conv2(x))))  # 16x16 -> 8x8
+        x = F.relu(self.bn3(self.conv3(x)))              # 8x8
+        x = x.view(-1, 128 * 8 * 8)
+        x = self.dropout(F.relu(self.fc1(x)))
+        x = self.fc2(x)
+        return F.log_softmax(x, dim=1)
 
 
 class hiddenNet(nn.Module):
@@ -216,67 +185,33 @@ def train(args, model, device, train_loader, optimizer, epoch,bdModel,optimizerB
         # ====== Phase 1: Train bdModel (trigger generator) ======
         lossBD = 0
         for i in range(10):
-            # noise = torch.rand(batch_size, nz).to(device)
-            # targetBDBatch = torch.ones(batch_size).long().to(device)*i
-            # targetOneHotEncoding = convertToOneHotEncoding(targetBDBatch,numOfClasses).to(device)
-            # backDoors = (bdModel(targetOneHotEncoding,noise)).view(-1,3,BDSize,BDSize)
-            # # dataBD = insertSingleBD(data.detach(),backDoors,i)
-            # bd_indices = torch.randperm(batch_size)[:int(args.bd_ratio * batch_size)]
-            # data_subset = data[bd_indices]
-            # noise_subset = noise[bd_indices]
-            # target_subset = torch.ones(len(bd_indices)).long().to(device) * i
-            # onehot_subset = convertToOneHotEncoding(target_subset, numOfClasses).to(device)
-            # bd_subset = bdModel(onehot_subset, noise_subset).view(-1, 3, BDSize, BDSize)
-            # dataBD = insertSingleBD(data_subset, bd_subset, i)
-            # outputBD = model(dataBD)
-            # lossBD += criterion(outputBD, target_subset)
-            # # end
-            # # outputBD = model(dataBD)
-            # # lossBD  = lossBD + criterion(outputBD, targetBDBatch)
-            bd_indices = torch.randperm(batch_size)[:int(args.bd_ratio * batch_size)]
-            if len(bd_indices) == 0:
-                continue
-            data_subset = data[bd_indices] # Ambil subset data untuk backdoor
-            noise_subset = torch.rand(len(bd_indices), nz).to(device) # Noise untuk generator
-            target_subset = torch.ones(len(bd_indices)).long().to(device) * i # Label target backdoor
-            onehot_subset = convertToOneHotEncoding(target_subset, numOfClasses).to(device)
-            triggers = bdModel(onehot_subset, noise_subset).view(-1, 3, BDSize, BDSize) # Menghasilkan trigger dari generator
-
-            dataBD = insertSingleBD(data_subset, triggers, i) # Menyisipkan trigger ke dalam data
-            outputBD = model(dataBD) # Mendapatkan prediksi dari model untuk data yang sudah dipatch
-            lossBD += criterion(outputBD, target_subset) # Hitung loss untuk data yang disisipi backdoor
-        lossBD.backward() # Backpropagate loss untuk model backdoor
-        optimizerBD.step() # Update parameter model backdoor
+            noise = torch.rand(batch_size, nz).to(device)
+            targetBDBatch = torch.ones(batch_size).long().to(device)*i
+            targetOneHotEncoding = convertToOneHotEncoding(targetBDBatch,numOfClasses).to(device)
+            backDoors = (bdModel(targetOneHotEncoding,noise)).view(-1,3,BDSize,BDSize)
+            dataBD = insertSingleBD(data.detach(),backDoors,i)
+            outputBD = model(dataBD)
+            lossBD  = lossBD + criterion(outputBD, targetBDBatch)
+        lossBD.backward()
+        optimizerBD.step()
         
         # ====== Phase 2: Train main model ======
         # 1. Clean data
-        dataNorm = transformImg(data.detach()) # Normalisasi data
-        output = model(dataNorm) # Prediksi untuk data bersih
-        lossTarget = criterion(output, target) # Hitung loss untuk data bersih
+        dataNorm = transformImg(data.detach())
+        output = model(dataNorm)
+        lossTarget = criterion(output, target)
         
         # 2. Backdoor data (partial, based on bd_ratio)
         for i in range(10):
-            # noise = torch.rand(batch_size, nz).to(device)
-            # targetBDBatch = torch.ones(batch_size).long().to(device)*i
-            # targetOneHotEncoding = convertToOneHotEncoding(targetBDBatch,numOfClasses).to(device)
-            # backDoors = (bdModel(targetOneHotEncoding,noise)).view(-1,3,BDSize,BDSize)
+            noise = torch.rand(batch_size, nz).to(device)
+            targetBDBatch = torch.ones(batch_size).long().to(device)*i
+            targetOneHotEncoding = convertToOneHotEncoding(targetBDBatch,numOfClasses).to(device)
+            backDoors = (bdModel(targetOneHotEncoding,noise)).view(-1,3,BDSize,BDSize)
 
-            # dataBD = insertSingleBD(data,backDoors,i)
-            # outputBD = model(dataBD)
-            
-            # lossTarget  = lossTarget + criterion(outputBD, targetBDBatch)
-            bd_indices = torch.randperm(batch_size)[:int(args.bd_ratio * batch_size)]
-            if len(bd_indices) == 0:
-                continue
-            data_subset = data[bd_indices]
-            noise_subset = torch.rand(len(bd_indices), nz).to(device)
-            target_subset = torch.ones(len(bd_indices)).long().to(device) * i
-            onehot_subset = convertToOneHotEncoding(target_subset, numOfClasses).to(device)
-            triggers = bdModel(onehot_subset, noise_subset).view(-1, 3, BDSize, BDSize)
-
-            dataBD = insertSingleBD(data_subset, triggers, i)
+            dataBD = insertSingleBD(data,backDoors,i)
             outputBD = model(dataBD)
-            lossTarget += criterion(outputBD, target_subset)
+            
+            lossTarget  = lossTarget + criterion(outputBD, targetBDBatch)
 
         lossTarget.backward()
         optimizer.step()
@@ -391,26 +326,17 @@ def main():
     if args.debug_clean:
         print("[DEBUG MODE] Training model only on clean data.")
         optimizer = optim.Adam(model.parameters(), lr=args.lr)
-        
-        scheduler   = StepLR(optimizer,   step_size=1, gamma=args.gamma)
         for epoch in range(1, args.epochs + 1):
             train_clean(args, model, device, train_loader, optimizer, epoch)
-            scheduler.step()
         torch.save(model.state_dict(), "models/cifar10_clean.pth")
     else:
         print("[BACKDOOR MODE] Training model with generator.")
         bdModel = hiddenNet().to(device)
         optimizer = optim.Adam(model.parameters(), lr=args.lr)
         optimizerBD = optim.Adam(bdModel.parameters(), lr=args.lr)
-        
-        scheduler   = StepLR(optimizer,   step_size=1, gamma=args.gamma)
-        schedulerBD = StepLR(optimizerBD, step_size=1, gamma=args.gamma)
         for epoch in range(1, args.epochs + 1):
             train(args, model, device, train_loader, optimizer, epoch, bdModel, optimizerBD)
             test(args, model, device, test_loader, bdModel)
-            
-            scheduler.step()
-            schedulerBD.step()
         torch.save(model.state_dict(), "models/cifar10_cnn.pth")
 
 if __name__ == '__main__':
