@@ -2,8 +2,8 @@ import torch
 import os
 import json
 from itertools import combinations
-from src.model.cifar_cban_generator import Net
-from src.model.cifar_cban_generator import hiddenNet
+from src.model.contributor_adjusted import Net
+from src.model.contributor_adjusted import hiddenNet
 from src.utils.dataset_loader import load_dataloader, load_backdoor_testloader
 from src.evaluators.evaluator import evaluate_clean, evaluate_backdoor
 

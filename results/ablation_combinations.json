@@ -1,82 +1,82 @@
 [
     {
         "combo": "none",
-        "clean_accuracy": 10.07,
-        "backdoor_accuracy": 10.048
+        "clean_accuracy": 32.63,
+        "backdoor_accuracy": 11.525
     },
     {
         "combo": "AE",
-        "clean_accuracy": 10.0,
-        "backdoor_accuracy": 10.055
+        "clean_accuracy": 32.99,
+        "backdoor_accuracy": 11.889
     },
     {
         "combo": "TF",
-        "clean_accuracy": 10.06149813489263,
-        "backdoor_accuracy": 10.034976345477336
+        "clean_accuracy": 57.78087927424983,
+        "backdoor_accuracy": 12.777777777777779
     },
     {
         "combo": "DD",
-        "clean_accuracy": 75.65,
-        "backdoor_accuracy": 9.997
+        "clean_accuracy": 60.68,
+        "backdoor_accuracy": 10.108
     },
     {
         "combo": "DA",
-        "clean_accuracy": 10.38,
-        "backdoor_accuracy": 10.033
+        "clean_accuracy": 16.18,
+        "backdoor_accuracy": 12.141
     },
     {
         "combo": "AE+TF",
-        "clean_accuracy": 9.98998998998999,
-        "backdoor_accuracy": 10.025782316364188
+        "clean_accuracy": 63.970588235294116,
+        "backdoor_accuracy": 12.502063046707377
     },
     {
         "combo": "AE+DD",
-        "clean_accuracy": 25.69,
-        "backdoor_accuracy": 10.035
-    },
-    {
-        "combo": "AE+DA",
-        "clean_accuracy": 10.0,
-        "backdoor_accuracy": 10.039
-    },
-    {
-        "combo": "TF+DD",
-        "clean_accuracy": 89.00832702498107,
-        "backdoor_accuracy": 10.044696114142106
-    },
-    {
-        "combo": "TF+DA",
-        "clean_accuracy": 10.432167167959474,
-        "backdoor_accuracy": 10.036806342015854
-    },
-    {
-        "combo": "DD+DA",
-        "clean_accuracy": 25.36,
-        "backdoor_accuracy": 9.986
-    },
-    {
-        "combo": "AE+TF+DD",
-        "clean_accuracy": 50.120019203072495,
-        "backdoor_accuracy": 10.016211576973204
-    },
-    {
-        "combo": "AE+TF+DA",
-        "clean_accuracy": 10.02008032128514,
-        "backdoor_accuracy": 10.046073616525746
-    },
-    {
-        "combo": "AE+DD+DA",
-        "clean_accuracy": 17.14,
+        "clean_accuracy": 30.14,
         "backdoor_accuracy": 10.047
     },
     {
+        "combo": "AE+DA",
+        "clean_accuracy": 21.39,
+        "backdoor_accuracy": 12.021
+    },
+    {
+        "combo": "TF+DD",
+        "clean_accuracy": 83.45639132441163,
+        "backdoor_accuracy": 10.016710432084029
+    },
+    {
+        "combo": "TF+DA",
+        "clean_accuracy": 24.444444444444443,
+        "backdoor_accuracy": 12.530020703933747
+    },
+    {
+        "combo": "DD+DA",
+        "clean_accuracy": 14.93,
+        "backdoor_accuracy": 10.107
+    },
+    {
+        "combo": "AE+TF+DD",
+        "clean_accuracy": 57.972885732730795,
+        "backdoor_accuracy": 10.050383246973423
+    },
+    {
+        "combo": "AE+TF+DA",
+        "clean_accuracy": 36.937901498929335,
+        "backdoor_accuracy": 12.704644169729368
+    },
+    {
+        "combo": "AE+DD+DA",
+        "clean_accuracy": 14.33,
+        "backdoor_accuracy": 10.101
+    },
+    {
         "combo": "TF+DD+DA",
-        "clean_accuracy": 44.25799685369691,
-        "backdoor_accuracy": 10.00174800171622
+        "clean_accuracy": 22.17391304347826,
+        "backdoor_accuracy": 10.094299185597942
     },
     {
         "combo": "AE+TF+DD+DA",
-        "clean_accuracy": 34.528301886792455,
-        "backdoor_accuracy": 10.02180035962637
+        "clean_accuracy": 20.0,
+        "backdoor_accuracy": 10.000479179644449
     }
 ]

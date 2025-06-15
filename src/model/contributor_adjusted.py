@@ -20,38 +20,26 @@ BDSize = 5
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1)
-        self.bn1 = nn.BatchNorm2d(32)
+        self.conv1 = nn.Conv2d(3, 6, 5)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.conv2 = nn.Conv2d(6, 16, 5)
+        self.fc1 = nn.Linear(16 * 5 * 5, 120)
+        self.fc2 = nn.Linear(120, 84)
+        self.fc3 = nn.Linear(84, 10)
 
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm2d(64)
 
-        self.pool = nn.MaxPool2d(2, 2)  # mengurangi resolusi setengah (32×32 → 16×16)
+    def forward(self, x, return_logits_only=False): 
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = x.view(-1, 16 * 5 * 5)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
 
-        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
-        self.bn3 = nn.BatchNorm2d(128)
-
-        self.pool2 = nn.MaxPool2d(2, 2)  # mengurangi lagi (16×16 → 8×8) output: 8x8
-
-        self.dropout = nn.Dropout(0.5)
-
-        self.fc1 = nn.Linear(128 * 8 * 8, 256)
-        self.fc2 = nn.Linear(256, 10)
-
-    def forward(self, x, return_logits_only=False):
-        # Blok 1: conv1 → batchnorm → ReLU → pool
-        x = self.pool(F.relu(self.bn1(self.conv1(x))))     # 3×32×32 → 32×32×32 → BN → ReLU → Pool → 32×16×16
-        # Blok 2: conv2 → batchnorm → ReLU → pool2
-        x = self.pool2(F.relu(self.bn2(self.conv2(x))))    # 32×16×16 → 64×16×16 → BN → ReLU → Pool → 64×8×8
-        # Blok 3: conv3 → batchnorm → ReLU (tanpa pooling tambahan)
-        x = F.relu(self.bn3(self.conv3(x)))                # 64×8×8 → 128×8×8 → BN → ReLU
-        x = x.view(-1, 128 * 8 * 8)                        # (batch_size, 128 * 8 * 8)
-        x = self.dropout(F.relu(self.fc1(x)))              # (batch_size, 256)
-        logits = self.fc2(x)                               # (batch_size, 10)
         if return_logits_only:
-            return logits
-        return F.log_softmax(logits, dim=1)
+            return x 
 
+        return F.log_softmax(x, dim=1) 
 
 
 class hiddenNet(nn.Module):
@@ -60,7 +48,7 @@ class hiddenNet(nn.Module):
         self.fc0 = nn.Linear(numOfClasses, 64)
         self.fc1 = nn.Linear(nz, 64)
         self.fc11 = nn.Linear(128, 128)
-        self.dropout = nn.Dropout(0.5)
+        self.dropout = nn.Dropout(0.1)
         self.fc2 = nn.Linear(128, 128)
         self.fc3 = nn.Linear(128, 3*BDSize*BDSize)
 
@@ -137,7 +125,6 @@ def train(args, model, device, train_loader, optimizer, epoch,bdModel,optimizerB
         optimizer.zero_grad()
         optimizerBD.zero_grad()
         
-        
         lossBD = 0
         for i in range(10):
             noise = torch.rand(batch_size, nz).to(device)
@@ -194,7 +181,8 @@ def test(args, model, device, test_loader,bdModel):
             batch_size = data.shape[0]
             noise = torch.rand(batch_size, nz).to(device)
             data, target, noise  = data.to(device), target.to(device),noise.to(device)
-    
+
+           
             dataNorm = transformImg(data)
             output = model(dataNorm)
             test_loss += F.nll_loss(output, target, reduction='sum').item()
@@ -235,8 +223,8 @@ def main():
                         help='number of epochs to train (default: 14)')
     parser.add_argument('--lr', type=float, default=1.0, metavar='LR',
                         help='learning rate (default: 1.0)')
-    parser.add_argument('--gamma', type=float, default=0.9, metavar='M',
-                        help='Learning rate step gamma (default: 0.9)')
+    parser.add_argument('--gamma', type=float, default=0.7, metavar='M',
+                        help='Learning rate step gamma (default: 0.7)')
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
@@ -264,19 +252,13 @@ def main():
         batch_size=args.test_batch_size, shuffle=True, **kwargs)
     model = Net().to(device)
     bdModel = hiddenNet().to(device)
-    
-    optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    optimizerBD = optim.Adam(bdModel.parameters(), lr=args.lr)
-    
-    scheduler   = StepLR(optimizer,   step_size=1, gamma=args.gamma)
-    schedulerBD = StepLR(optimizerBD, step_size=1, gamma=args.gamma)
+    optimizer = optim.Adam(model.parameters())
+    optimizerBD = optim.Adam(bdModel.parameters())
     for epoch in range(1, args.epochs + 1):
         train(args, model, device, train_loader, optimizer, epoch,bdModel,optimizerBD)
         test(args, model, device, test_loader,bdModel)
 
-        scheduler.step()
-        schedulerBD.step()
-        torch.save(model.state_dict(), "./models/cifar10_cnn.pth")
+        torch.save(model.state_dict(), "models/cifar10_cnn.pth")
 
 
 if __name__ == '__main__':

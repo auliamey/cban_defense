@@ -76,30 +76,26 @@ class MNISTNet(nn.Module):
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        # Kurangi jumlah filter di setiap lapisan
-        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1)  # 3 -> 16 filter
-        self.bn1 = nn.BatchNorm2d(16)
+        self.conv1 = nn.Conv2d(3, 6, 5)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.conv2 = nn.Conv2d(6, 16, 5)
+        self.fc1 = nn.Linear(16 * 5 * 5, 120)
+        self.fc2 = nn.Linear(120, 84)
+        self.fc3 = nn.Linear(84, 10)
 
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)  # 16 -> 32 filter
-        self.bn2 = nn.BatchNorm2d(32)
 
-        self.pool = nn.MaxPool2d(2, 2)  # Maksimalkan pooling
+    def forward(self, x, return_logits_only=False): 
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = x.view(-1, 16 * 5 * 5)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
 
-        self.fc1 = nn.Linear(32 * 8 * 8, 128)  # Fully connected setelah pooling
-        self.fc2 = nn.Linear(128, 10)  # Output 10 kelas CIFAR-10
+        if return_logits_only:
+            return x 
 
-        self.dropout = nn.Dropout(0.3)  # Coba dropout lebih kecil untuk regulasi
-
-    def forward(self, x):
-        # Blok 1: conv1 → batchnorm → ReLU → pool
-        x = self.pool(F.relu(self.bn1(self.conv1(x))))  # 32x32 -> 16x16
-        # Blok 2: conv2 → batchnorm → ReLU → pool
-        x = self.pool(F.relu(self.bn2(self.conv2(x))))  # 16x16 -> 8x8
-        x = x.view(-1, 32 * 8 * 8)  # Flatten ke vektor 1D
-        x = self.dropout(F.relu(self.fc1(x)))  # Fully connected + dropout
-        logits = self.fc2(x)  # Output untuk 10 kelas
-        return F.log_softmax(logits, dim=1)
-
+        return F.log_softmax(x, dim=1) 
 
 class hiddenNet(nn.Module):
     def __init__(self,numOfClasses=numOfClasses):

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from src.model.cifar_cban_generator import Net
+from src.model.contributor_adjusted import Net
 
 def soft_cross_entropy(preds, targets, temperature):
     log_preds = F.log_softmax(preds / temperature, dim=1)
