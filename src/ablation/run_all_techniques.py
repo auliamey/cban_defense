@@ -2,8 +2,7 @@ import torch
 import os
 import json
 from itertools import combinations
-from src.model.contributor_adjusted import Net
-from src.model.contributor_adjusted import hiddenNet
+from src.model.contributor_adjusted import Net, hiddenNet, test_with_defenses
 from src.utils.dataset_loader import load_dataloader, load_backdoor_testloader
 from src.evaluators.evaluator import evaluate_clean, evaluate_backdoor
 
@@ -12,32 +11,35 @@ from src.defenses.threshold_filtering import ThresholdFilter
 from src.defenses.defensive_distillation import train_teacher_student
 from src.defenses.data_augmentation import AugmentationDefense
 
+
 def apply_defenses(model, test_loader, device, combo):
     loader = test_loader
     filter_fn = None
 
+    # Data Augmentation Defense
     if "DA" in combo:
         loader = AugmentationDefense().augment_loader(loader, device)
 
-    if "AE" in combo:
-        ae = AutoencoderDenoiser().to(device)
-        #TODO
-        ae.load_state_dict(torch.load("models/autoencoder.pth"))
-        ae.eval()
-        denoised_data = []
-        denoised_labels = []
-        for x, y in loader:
-            x = x.to(device)
-            x_denoised = ae(x).detach().cpu()
-            denoised_data.append(x_denoised)
-            denoised_labels.append(y)
-        from torch.utils.data import DataLoader, TensorDataset
-        x_all = torch.cat(denoised_data)
-        y_all = torch.cat(denoised_labels)
-        loader = DataLoader(TensorDataset(x_all, y_all), batch_size=test_loader.batch_size)
+    # Autoencoder Denoising Defense
+    # if "AE" in combo:
+    #     ae = AutoencoderDenoiser().to(device)
+    #     ae.load_state_dict(torch.load("models/autoencoder.pth"))
+    #     ae.eval()
+    #     denoised_data = []
+    #     denoised_labels = []
+    #     for x, y in loader:
+    #         x = x.to(device)
+    #         x_denoised = ae(x).detach().cpu()
+    #         denoised_data.append(x_denoised)
+    #         denoised_labels.append(y)
+    #     from torch.utils.data import DataLoader, TensorDataset
+    #     x_all = torch.cat(denoised_data)
+    #     y_all = torch.cat(denoised_labels)
+    #     loader = DataLoader(TensorDataset(x_all, y_all), batch_size=test_loader.batch_size)
 
+    # Threshold Filtering Defense
     if "TF" in combo:
-        filter_fn = ThresholdFilter(threshold=0.7)
+        filter_fn = ThresholdFilter(threshold=0.8)
 
     return loader, filter_fn
 
@@ -45,7 +47,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dataset = "cifar10"
     batch_size = 128
-    _, test_loader = load_dataloader(dataset, batch_size=batch_size)
+    _, test_loader = load_dataloader(dataset, batch_size=10000)
 
     # Use distilled model if in combo, otherwise use original backdoored model
     all_defenses = ["AE", "TF", "DD", "DA"]
@@ -62,7 +64,7 @@ def main():
                 if not os.path.exists(model_path):
                     print("\n[!] Training student model for DD...")
                     train_loader, _ = load_dataloader(dataset, batch_size=batch_size)
-                    train_teacher_student(train_loader, test_loader, device,
+                    train_teacher_student(Net, train_loader, test_loader, device,
                                           "models/cifar10_cnn.pth", model_path,
                                           temperature=10.0, alpha=0.5)
             else:
@@ -73,15 +75,20 @@ def main():
             model.eval()
             
             generator = hiddenNet().to(device)
+            generator.load_state_dict(torch.load("models/cifar_bd.pth"))
+            generator.eval()
             
             # Apply selected defenses
             defended_loader, filter_fn = apply_defenses(model, test_loader, device, combo)
             
-            backdoor_loader = load_backdoor_testloader(generator, batch_size, device) 
+            # backdoor_loader = load_backdoor_testloader(generator, batch_size, device) 
 
-            # Evaluate
-            clean_acc = evaluate_clean(model, defended_loader, device, filter_fn)
-            bd_acc = evaluate_backdoor(model, backdoor_loader, device, dataset, filter_fn)
+            print("::::::::::::::::")
+            # Evaluate after applying defenses
+            if "AE" in combo:
+                clean_acc, bd_acc = test_with_defenses(model, device, defended_loader, generator, filter_fn, isAutoencoder=True)
+            else:
+                clean_acc, bd_acc = test_with_defenses(model, device, defended_loader, generator, filter_fn)
 
             # Save result
             results.append({

@@ -8,6 +8,8 @@ from torchvision import datasets, transforms
 from torch.optim.lr_scheduler import StepLR
 import numpy as np
 import torchvision.utils as vutils
+from src.defenses.autoencoder import AutoencoderDenoiser
+from torch.utils.data import DataLoader, TensorDataset
 
 torch.manual_seed(333)
 np.random.seed(333)
@@ -181,7 +183,6 @@ def test(args, model, device, test_loader,bdModel):
             batch_size = data.shape[0]
             noise = torch.rand(batch_size, nz).to(device)
             data, target, noise  = data.to(device), target.to(device),noise.to(device)
-
            
             dataNorm = transformImg(data)
             output = model(dataNorm)
@@ -259,6 +260,89 @@ def main():
         test(args, model, device, test_loader,bdModel)
 
         torch.save(model.state_dict(), "models/cifar10_cnn.pth")
+        torch.save(bdModel.state_dict(), "models/cifar_bd.pth")
+
+
+def test_with_defenses(model, device, test_loader, bdModel, filter_fn=None, isAutoencoder=False):
+    """
+    This function tests the model on clean and backdoor data after applying defense methods.
+    """
+    print('Testing with defenses...')
+    model.eval()
+    bdModel.eval()
+    
+    correct = 0
+    total = 0
+    correctBD = 0
+    totalBD = 0
+
+    test_loss = 0
+    test_lossBD = 0
+    
+    if isAutoencoder:
+        ae = AutoencoderDenoiser().to(device)
+        ae.load_state_dict(torch.load("models/autoencoder.pth"))
+        ae.eval()
+        denoised_data = []
+        denoised_labels = []
+        for x, y in test_loader:
+            x = x.to(device)
+            x_denoised = ae(x).detach().cpu()
+            denoised_data.append(x_denoised)
+            denoised_labels.append(y)
+    
+        x_all = torch.cat(denoised_data)
+        y_all = torch.cat(denoised_labels)
+        test_loader = DataLoader(TensorDataset(x_all, y_all), batch_size=test_loader.batch_size)
+
+    with torch.no_grad():
+        for data, target in test_loader:
+            batch_size = data.shape[0]
+            data, target = data.to(device), target.to(device)
+            
+            # Process clean data
+            logits = model(data, return_logits_only=True)  # Get logits
+            probs = F.softmax(logits, dim=1)  # Convert logits to probabilities
+            preds = probs.argmax(dim=1)
+            correct += (preds == target).sum().item()
+            total += target.size(0)
+
+            # Evaluate backdoor data
+            for i in range(10):
+                noise = torch.rand(batch_size, nz).to(device)
+                targetBDBatch = torch.ones(batch_size).long().to(device) * i
+                targetOneHotEncoding = convertToOneHotEncoding(targetBDBatch, numOfClasses).to(device)
+                backDoors = bdModel(targetOneHotEncoding, noise).view(-1, 3, BDSize, BDSize)
+                dataBD = insertSingleBD(data, backDoors, i)
+                
+                if isAutoencoder:
+                    dataBD = ae(dataBD)
+                    
+                outputBD = model(dataBD)
+
+                test_lossBD += F.nll_loss(outputBD, targetBDBatch, reduction='sum').item()
+                predBD = outputBD.argmax(dim=1, keepdim=True)
+                correctBD += predBD.eq(targetBDBatch.view_as(predBD)).sum().item()
+                totalBD += targetBDBatch.size(0)
+                
+                
+            # Optionally, apply a filter function to the probabilities if provided
+            if filter_fn:
+                preds = filter_fn(probs)
+                mask = preds != -1
+                correct += (preds[mask] == target[mask].cpu()).sum().item()
+                total += mask.sum().item()
+                
+        # Calculate final accuracy and losses
+        test_loss /= len(test_loader.dataset)
+        test_lossBD /= len(test_loader.dataset)
+        
+        print("Correct: ", correct)
+        print("Total : ", total)
+        print(f'\nTest set: Average loss: {test_loss:.4f}, Accuracy: {100. * correct / total:.0f}%')
+        print(f'Backdoor Test set: Average loss: {test_lossBD:.4f}, Accuracy: {100. * correctBD / totalBD:.0f}%')
+
+    return 100. * correct / total, 100. * correctBD / totalBD
 
 
 if __name__ == '__main__':

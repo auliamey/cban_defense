@@ -6,217 +6,318 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.optim.lr_scheduler import StepLR
+import os
 import numpy as np
+from PIL import Image, ImageDraw
 import torchvision.utils as vutils
+from src.defenses.mnist.autoencoder import AutoencoderDenoiserMNIST
+from torch.utils.data import DataLoader, TensorDataset
 
-# Reproducibility
+# set seed
 torch.manual_seed(333)
 np.random.seed(333)
 
 nz = 100
 numOfClasses = 10
-BDSize = 5
-
+BDSize = 5  # ukuran patch trigger
 
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 6, 5)  # MNIST: 1-channel
-        self.pool = nn.MaxPool2d(2, 2)
-        self.conv2 = nn.Conv2d(6, 16, 5)
-        self.fc1 = nn.Linear(16 * 4 * 4, 120)  # 28x28 -> 12x12 after 2 conv+pool
-        self.fc2 = nn.Linear(120, 84)
-        self.fc3 = nn.Linear(84, 10)
+        # MNIST single-channel
+        self.conv1 = nn.Conv2d(1, 6, 5)      # 28x28 -> 24x24
+        self.pool  = nn.MaxPool2d(2, 2)      # 24x24 -> 12x12
+        self.conv2 = nn.Conv2d(6, 16, 5)     # 12x12 -> 8x8
+        # pool -> 4x4
+        self.fc1   = nn.Linear(16 * 4 * 4, 120)
+        self.fc2   = nn.Linear(120, 84)
+        self.fc3   = nn.Linear(84, 10)
 
-    def forward(self, x):
+    def forward(self, x, return_logits_only=False):
         x = self.pool(F.relu(self.conv1(x)))
         x = self.pool(F.relu(self.conv2(x)))
         x = x.view(-1, 16 * 4 * 4)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return F.log_softmax(x, dim=1)
+        logits = self.fc3(x)
+
+        if return_logits_only:
+            return logits
+        return F.log_softmax(logits, dim=1)
 
 
 class hiddenNet(nn.Module):
     def __init__(self, numOfClasses=numOfClasses):
         super(hiddenNet, self).__init__()
-        self.fc0 = nn.Linear(numOfClasses, 64)
-        self.fc1 = nn.Linear(nz, 64)
-        self.fc11 = nn.Linear(128, 128)
-        self.dropout = nn.Dropout(0.5)
-        self.fc2 = nn.Linear(128, 128)
-        self.fc3 = nn.Linear(128, 1 * BDSize * BDSize)  # MNIST is 1-channel
+        self.fc0   = nn.Linear(numOfClasses, 64)
+        self.fc1   = nn.Linear(nz, 64)
+        self.fc11  = nn.Linear(128, 128)
+        self.dropout = nn.Dropout(0.1)
+        self.fc2   = nn.Linear(128, 128)
+        self.fc3   = nn.Linear(128, 1 * BDSize * BDSize)
 
     def forward(self, c, x):
         xc = self.fc0(c)
         xx = self.fc1(x)
-        gen_input = torch.cat((xc, xx), -1)
+        gen_input = torch.cat((xc, xx), dim=-1)
         x = F.relu(self.fc11(gen_input))
         x = self.dropout(x)
-        x = F.relu(self.fc2(x))
-        x = self.dropout(x)
-        x = self.fc3(x)
-        x = self.dropout(x)
+        x = self.dropout(self.fc2(x))
+        x = self.dropout(self.fc3(x))
         return torch.sigmoid(x)
 
 
 def convertToOneHotEncoding(c, numOfClasses=numOfClasses):
-    oneHotEncoding = torch.zeros(c.shape[0], numOfClasses)
-    oneHotEncoding[torch.arange(c.shape[0]), c] = 1
-    return oneHotEncoding
+    oneHot = torch.zeros(c.size(0), numOfClasses, device=c.device)
+    oneHot.scatter_(1, c.view(-1,1), 1)
+    return oneHot
 
 
 def transformImg(image):
-    return image  # MNIST sudah [0,1], tidak perlu dinormalisasi khusus
+    # normalisasi MNIST single-channel
+    transformIt = transforms.Normalize((0.5,), (0.5,))
+    return transformIt(image)
 
 
-def insertSingleBD(image, BD, label, scale=1):
-    patched_images = []
-    for i, bdSingle in zip(image, BD):
-        i_copy = i.clone()
-        x = np.random.randint(0, 28 - BDSize)
-        y = np.random.randint(0, 28 - BDSize)
-        i_copy[:, y:y + BDSize, x:x + BDSize] = scale * bdSingle.view(1, BDSize, BDSize)
-        patched_images.append(i_copy)
-    return torch.stack(patched_images)
+def insertSingleBD(images, BD, label):
+    """
+    Sisipkan trigger ke dalam batch citra MNIST (single–channel).
+    """
+    patched = []
+    transformIt = transforms.Normalize((0.5,), (0.5,))
+    for img, bd in zip(images, BD):
+        i_copy = img.clone()
+        # pos random di 0–(28−BDSize)
+        x = np.random.randint(0, 28 - BDSize + 1)
+        y = np.random.randint(0, 28 - BDSize + 1)
+        i_copy[:, x:x+BDSize, y:y+BDSize] = bd.view(1, BDSize, BDSize)
+        patched.append(transformIt(i_copy))
+    return torch.stack(patched)
 
-
-# Fungsi TRAIN dan TEST khusus MNIST
 
 def train(args, model, device, train_loader, optimizer, epoch, bdModel, optimizerBD):
     model.train()
     bdModel.train()
-
-    torch.autograd.set_detect_anomaly(True)
     criterion = nn.CrossEntropyLoss()
     
+
     for batch_idx, (data, target) in enumerate(train_loader):
         batch_size = data.size(0)
-        noise = torch.rand(batch_size, nz).to(device)
         data, target = data.to(device), target.to(device)
-
+        
         optimizer.zero_grad()
         optimizerBD.zero_grad()
 
+        # training backdoor generator
         lossBD = 0
-        for i in range(10):
-            noise = torch.rand(batch_size, nz).to(device)
-            targetBDBatch = torch.ones(batch_size, dtype=torch.long).to(device) * i
-            targetOneHot = convertToOneHotEncoding(targetBDBatch, numOfClasses).to(device)
-            backDoors = bdModel(targetOneHot, noise).view(-1, 1, BDSize, BDSize)
-            dataBD = insertSingleBD(data.detach(), backDoors, i)
-            outputBD = model(dataBD)
-            lossBD += criterion(outputBD, targetBDBatch)
-        
+        for cls in range(numOfClasses):
+            noise = torch.rand(batch_size, nz, device=device)
+            targetBD = torch.full((batch_size,), cls, dtype=torch.long, device=device)
+            oh = convertToOneHotEncoding(targetBD)
+            bd_patches = bdModel(oh, noise).view(-1, 1, BDSize, BDSize)
+            dataBD = insertSingleBD(data.detach(), bd_patches, cls)
+            outBD  = model(dataBD)
+            lossBD += criterion(outBD, targetBD)
         lossBD.backward()
         optimizerBD.step()
 
-        # Normal training loss
-        dataNorm = transformImg(data.detach())
-        output = model(dataNorm)
-        lossTarget = criterion(output, target)
-
-        # Add BD loss
-        for i in range(10):
-            noise = torch.rand(batch_size, nz).to(device)
-            targetBDBatch = torch.ones(batch_size, dtype=torch.long).to(device) * i
-            targetOneHot = convertToOneHotEncoding(targetBDBatch, numOfClasses).to(device)
-            backDoors = bdModel(targetOneHot, noise).view(-1, 1, BDSize, BDSize)
-            dataBD = insertSingleBD(data, backDoors, i)
-            outputBD = model(dataBD)
-            lossTarget += criterion(outputBD, targetBDBatch)
-
-        lossTarget.backward()
+        # training classifier
+        dataNorm = transformImg(data)
+        outClean = model(dataNorm)
+        lossClean = criterion(outClean, target)
+        lossClean.backward()
         optimizer.step()
 
         if batch_idx % args.log_interval == 0:
-            print(f'Train Epoch: {epoch} [{batch_idx * len(data)}/{len(train_loader.dataset)}'
-                  f' ({100. * batch_idx / len(train_loader):.0f}%)]\tLoss: {lossTarget.item():.6f}\tLossBD: {lossBD.item():.6f}')
-            vutils.save_image(dataBD.data, f'bdCnnImages/fake_samples_epoch_{epoch:03d}.png', normalize=True)
+            print(f'Train Epoch: {epoch} [{batch_idx * len(data)}/{len(train_loader.dataset)} '
+                  f'({100. * batch_idx / len(train_loader):.0f}%)]\tLossBD: {lossBD.item():.6f}')
+
+            # vutils.save_image(
+            #     dataBD.data,
+            #     '%s/fake_samples_epoch_%03d.png' % ('bdMNISTImages', epoch),
+            #     normalize=True
+            # )
 
 
-def test(args, model, device, test_loader, bdModel):
-    print('Two loss functions')
+def test(args, model, device, test_loader, bdModel, save_dir="saved_backdoor_images"):
     model.eval()
     bdModel.eval()
-    test_loss = 0
-    test_lossBD = 0
-    correct = 0
-    correctBD = 0
+    criterion = nn.NLLLoss(reduction='sum')
+    test_loss, test_lossBD = 0, 0
+    correct, correctBD = 0, 0
+    correctBDtotal, BDlosstotal = 0, 0
+    
+    # Persiapan folder penyimpanan
+    os.makedirs(save_dir, exist_ok=True)
+    img_counter = 0
 
     with torch.no_grad():
         for data, target in test_loader:
             batch_size = data.size(0)
             data, target = data.to(device), target.to(device)
 
-            # Normal test
-            dataNorm = transformImg(data)
-            output = model(dataNorm)
-            test_loss += F.nll_loss(output, target, reduction='sum').item()
-            pred = output.argmax(dim=1, keepdim=True)
-            correct += pred.eq(target.view_as(pred)).sum().item()
+            # clean
+            out = model(transformImg(data))
+            test_loss += criterion(out, target).item()
+            pred = out.argmax(dim=1)
+            correct += pred.eq(target).sum().item()
 
-            # Backdoor test per class
+            # backdoor test per kelas
             for i in range(10):
-                noise = torch.rand(batch_size, nz).to(device)
-                targetBDBatch = torch.ones(batch_size, dtype=torch.long).to(device) * i
-                targetOneHot = convertToOneHotEncoding(targetBDBatch, numOfClasses).to(device)
-                backDoors = bdModel(targetOneHot, noise).view(-1, 1, BDSize, BDSize)
-                dataBD = insertSingleBD(data, backDoors, i)
-                outputBD = model(dataBD)
-                lossBD = F.nll_loss(outputBD, targetBDBatch, reduction='sum').item()
-                predBD = outputBD.argmax(dim=1, keepdim=True)
-                correctBD = predBD.eq(targetBDBatch.view_as(predBD)).sum().item()
-                print(f'Class {i}\nBackDoor Test: Avg loss: {lossBD:.4f}, Accuracy: {correctBD}/{len(test_loader.dataset)} '
-                      f'({100. * correctBD / len(test_loader.dataset):.0f}%)\n')
+                noise = torch.rand(batch_size, nz, device=device)
+                targetBD = torch.ones(batch_size).long().to(device)*i
+                oh = convertToOneHotEncoding(targetBD)
+                bd_patches = bdModel(oh, noise).view(-1,1,BDSize,BDSize)
+                dataBD = insertSingleBD(data, bd_patches, i)
+                
+                outBD = model(dataBD)
+                test_lossBD = F.nll_loss(outBD, targetBD, reduction='sum').item()  
+                predBD = outBD.argmax(dim=1)
+                correctBD = predBD.eq(targetBD).sum().item()
+                correctBDtotal += correctBD            
+                    
+                BDlosstotal += test_lossBD
+                print('Class ' + str(i))
+                print('\nBackDoor Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+                test_lossBD, correctBD, len(test_loader.dataset),
+                100. * correctBD / len(test_loader.dataset)))
 
     test_loss /= len(test_loader.dataset)
-    print(f'\nClean Test: Avg loss: {test_loss:.4f}, Accuracy: {correct}/{len(test_loader.dataset)} '
-          f'({100. * correct / len(test_loader.dataset):.0f}%)\n')
+    
+    mean = correctBDtotal / 10 / 100
+    avgBDlosstotal = BDlosstotal / 10
+    
+    print(f'Backdoor set (avg over all classes): '
+          f'Avg loss: {avgBDlosstotal:.4f}, '
+          f'Accuracy: {mean} %')
+
+    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+        test_loss, correct, len(test_loader.dataset),
+        100. * correct / len(test_loader.dataset)))
 
 
 def main():
-    parser = argparse.ArgumentParser(description='PyTorch MNIST CBAN')
-    parser.add_argument('--batch-size', type=int, default=64)
-    parser.add_argument('--test-batch-size', type=int, default=1000)
-    parser.add_argument('--epochs', type=int, default=20)
-    parser.add_argument('--lr', type=float, default=0.7)
-    parser.add_argument('--gamma', type=float, default=0.7)
+    parser = argparse.ArgumentParser(description='PyTorch MNIST Backdoor Example')
+    parser.add_argument('--batch-size', type=int, default=64, metavar='N')
+    parser.add_argument('--test-batch-size', type=int, default=10000, metavar='N')
+    parser.add_argument('--epochs', type=int, default=15, metavar='N')
+    parser.add_argument('--lr', type=float, default=1e-3, metavar='LR')
+    parser.add_argument('--gamma', type=float, default=0.7, metavar='M')
     parser.add_argument('--no-cuda', action='store_true', default=False)
-    parser.add_argument('--seed', type=int, default=1)
-    parser.add_argument('--log-interval', type=int, default=100)
+    parser.add_argument('--seed', type=int, default=1, metavar='S')
+    parser.add_argument('--log-interval', type=int, default=100, metavar='N')
+    parser.add_argument('--output-dir', type=str, default='bdImages')
     parser.add_argument('--save-model', action='store_true', default=False)
     args = parser.parse_args()
 
     use_cuda = not args.no_cuda and torch.cuda.is_available()
-    device = torch.device("cuda" if use_cuda else "cpu")
-
     torch.manual_seed(args.seed)
+    device = torch.device("cuda" if use_cuda else "cpu")
     kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
 
-    train_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('../data', train=True, download=True,
-                       transform=transforms.ToTensor()),
+    # Data loaders MNIST
+    transform = transforms.Compose([transforms.ToTensor()])
+    train_loader = DataLoader(
+        datasets.MNIST('../data', train=True, download=True, transform=transform),
         batch_size=args.batch_size, shuffle=True, **kwargs)
-
-    test_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('../data', train=False,
-                       transform=transforms.ToTensor()),
+    test_loader  = DataLoader(
+        datasets.MNIST('../data', train=False, transform=transform),
         batch_size=args.test_batch_size, shuffle=False, **kwargs)
 
-    model = Net().to(device)
+
+    model   = Net().to(device)
     bdModel = hiddenNet().to(device)
-    optimizer = optim.Adam(model.parameters())
-    optimizerBD = optim.Adam(bdModel.parameters())
+    optimizer   = optim.Adam(model.parameters(), lr=args.lr)
+    optimizerBD = optim.Adam(bdModel.parameters(), lr=args.lr)
 
     for epoch in range(1, args.epochs + 1):
         train(args, model, device, train_loader, optimizer, epoch, bdModel, optimizerBD)
         test(args, model, device, test_loader, bdModel)
-
-    if args.save_model:
         torch.save(model.state_dict(), "models/mnist_cnn.pth")
+        torch.save(bdModel.state_dict(), "models/mnist_bd.pth")
+
+def test_with_defenses(model, device, test_loader, bdModel, filter_fn=None, isAutoencoder=False):
+    """
+    This function tests the model on clean and backdoor data after applying defense methods.
+    """
+    print('Testing with defenses...')
+    model.eval()
+    bdModel.eval()
+    
+    correct = 0
+    total = 0
+    correctBD = 0
+    totalBD = 0
+
+    test_loss = 0
+    test_lossBD = 0
+    
+    if isAutoencoder:
+        ae = AutoencoderDenoiserMNIST().to(device)
+        ae.load_state_dict(torch.load("models/autoencoder_mnist.pth"))
+        ae.eval()
+        denoised_data = []
+        denoised_labels = []
+        for x, y in test_loader:
+            x = x.to(device)
+            x_denoised = ae(x).detach().cpu()
+            denoised_data.append(x_denoised)
+            denoised_labels.append(y)
+    
+        x_all = torch.cat(denoised_data)
+        y_all = torch.cat(denoised_labels)
+        test_loader = DataLoader(TensorDataset(x_all, y_all), batch_size=test_loader.batch_size)
+
+    with torch.no_grad():
+        for data, target in test_loader:
+            batch_size = data.shape[0]
+            data, target = data.to(device), target.to(device)
+            
+            # Process clean data
+            logits = model(data, return_logits_only=True)  # Get logits
+            probs = F.softmax(logits, dim=1)  # Convert logits to probabilities
+            preds = probs.argmax(dim=1)
+            correct += (preds == target).sum().item()
+            total += target.size(0)
+
+            # Evaluate backdoor data
+            for i in range(10):
+                noise = torch.rand(batch_size, nz).to(device)
+                targetBDBatch = torch.ones(batch_size).long().to(device) * i
+                targetOneHotEncoding = convertToOneHotEncoding(targetBDBatch)
+                backDoors = bdModel(targetOneHotEncoding, noise).view(-1, 1, BDSize, BDSize)
+                dataBD = insertSingleBD(data, backDoors, i)
+                
+                if isAutoencoder:
+                    dataBD = ae(dataBD)
+                    
+                outputBD = model(dataBD)
+
+                test_lossBD += F.nll_loss(outputBD, targetBDBatch, reduction='sum').item()
+                predBD = outputBD.argmax(dim=1, keepdim=True)
+                correctBD += predBD.eq(targetBDBatch.view_as(predBD)).sum().item()
+                totalBD += targetBDBatch.size(0)
+                
+                
+            # Optionally, apply a filter function to the probabilities if provided
+            if filter_fn:
+                preds = filter_fn(probs)
+                mask = preds != -1
+                correct += (preds[mask] == target[mask].cpu()).sum().item()
+                total += mask.sum().item()
+                
+        # Calculate final accuracy and losses
+        test_loss /= len(test_loader.dataset)
+        test_lossBD /= len(test_loader.dataset)
+        
+        print("Correct: ", correct)
+        print("Total : ", total)
+        print(f'\nTest set: Average loss: {test_loss:.4f}, Accuracy: {100. * correct / total:.0f}%')
+        print(f'Backdoor Test set: Average loss: {test_lossBD:.4f}, Accuracy: {100. * correctBD / totalBD:.0f}%')
+
+    return 100. * correct / total, 100. * correctBD / totalBD
+
+
 
 if __name__ == '__main__':
     main()
-    print('=====')

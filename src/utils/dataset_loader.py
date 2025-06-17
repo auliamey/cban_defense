@@ -1,29 +1,43 @@
 import torch
 import torchvision
-from torchvision import datasets, transforms
-from torch.utils.data import DataLoader, TensorDataset
-from src.model.cifar_cban_generator import insertSingleBD, hiddenNet, convertToOneHotEncoding
+from torchvision import transforms
 
 def load_dataloader(dataset: str, batch_size: int = 128):
-    if dataset.lower() != "cifar10":
-        raise ValueError(f"Dataset '{dataset}' not supported.")
+    ds = dataset.lower()
+    
+    if ds == "cifar10":
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        ])
+        DatasetClass = torchvision.datasets.CIFAR10
 
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.5,), (0.5,))
-    ])
+    elif ds == "mnist":
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.5,), (0.5,))
+        ])
+        DatasetClass = torchvision.datasets.MNIST
 
-    train_set = torchvision.datasets.CIFAR10(
-        root='./data', train=True, download=True, transform=transform)
+    else:
+        raise ValueError(f"Dataset '{dataset}' not supported. Pilih 'cifar10' atau 'mnist'.")
+
+    train_set = DatasetClass(root='./data',
+                             train=True,
+                             download=True,
+                             transform=transform)
+    test_set  = DatasetClass(root='./data',
+                             train=False,
+                             download=True,
+                             transform=transform)
+
     train_loader = torch.utils.data.DataLoader(
         train_set, batch_size=batch_size, shuffle=True)
-
-    test_set = torchvision.datasets.CIFAR10(
-        root='./data', train=False, download=True, transform=transform)
-    test_loader = torch.utils.data.DataLoader(
-        test_set, batch_size=batch_size, shuffle=False)
+    test_loader  = torch.utils.data.DataLoader(
+        test_set,  batch_size=batch_size, shuffle=False)
 
     return train_loader, test_loader
+
 
 
 # def load_backdoor_testloader(batch_size, target_label=0, bd_size=5):
